@@ -65,10 +65,14 @@
 		return colors[level] ?? '#94a3b8';
 	}
 
-	function buildTimeline(log: SleepLog, dateStr: string) {
-		const winStart = new Date(
-			`${dateStr}T${String(WIN_START_HOUR).padStart(2, '0')}:00:00`
-		).getTime();
+	function buildTimeline(log: SleepLog) {
+		// Anchor window to 18:00 of the same day if sleep starts ≥18:00,
+		// or 18:00 of the previous day if sleep starts before 18:00 (morning/daytime sleep).
+		const startDate = new Date(log.startTime);
+		const base = new Date(log.startTime);
+		base.setHours(WIN_START_HOUR, 0, 0, 0);
+		if (startDate.getHours() < WIN_START_HOUR) base.setDate(base.getDate() - 1);
+		const winStart = base.getTime();
 
 		if (log.levels?.data?.length) {
 			return log.levels.data.flatMap((seg) => {
@@ -269,7 +273,7 @@
 							{@const log = entry?.mainSleep ?? null}
 							{@const isSelected = selectedDate === date}
 							{@const isToday = date === todayStr}
-							{@const segments = log ? buildTimeline(log, date) : []}
+							{@const segments = log ? buildTimeline(log) : []}
 
 							<button
 								onclick={() => { if (log) selectedDate = isSelected ? null : date; }}
