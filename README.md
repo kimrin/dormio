@@ -8,7 +8,7 @@ A static web app that visualizes Fitbit sleep phases on a monthly calendar. Buil
 
 1. Register a personal app at [dev.fitbit.com](https://dev.fitbit.com)
    - OAuth 2.0 Application Type: Personal
-   - Callback URL: `https://<username>.github.io/dormio/callback/`
+   - Callback URL: `https://kimrin.github.io/dormio/callback/`
    - Scopes: `Sleep`
 
 2. Open the app, click **Setup**, and enter your Fitbit Client ID.
