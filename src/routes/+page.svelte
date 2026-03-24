@@ -114,39 +114,52 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		return colors[level] ?? '#94a3b8';
 	}
 
-	function buildTimeline(log: SleepLog) {
-		const startDate = new Date(log.startTime);
-		const base = new Date(log.startTime);
-		base.setHours(WIN_START_HOUR, 0, 0, 0);
-		if (startDate.getHours() < WIN_START_HOUR) base.setDate(base.getDate() - 1);
-		const winStart = base.getTime();
-		const winEnd = winStart + WIN_MS;
-
-		function toSegment(segStart: number, segEnd: number, level: string) {
-			const s = Math.max(segStart, winStart);
-			const e = Math.min(segEnd, winEnd);
-			if (e <= s) return null;
-			return {
-				left: (s - winStart) / WIN_MS * 100,
-				width: (e - s) / WIN_MS * 100,
-				level
-			};
+	// Compute the display window for a row.
+	// If the primary sleep starts before WIN_START_HOUR, anchor to prev-day WIN_START_HOUR.
+	// If no primary sleep, use prev-day WIN_START_HOUR as default (same convention).
+	function getRowWin(dateStr: string, log: SleepLog | null): { winStart: number; winEnd: number } {
+		if (log) {
+			const base = new Date(log.startTime);
+			base.setHours(WIN_START_HOUR, 0, 0, 0);
+			if (new Date(log.startTime).getHours() < WIN_START_HOUR) base.setDate(base.getDate() - 1);
+			const ws = base.getTime();
+			return { winStart: ws, winEnd: ws + WIN_MS };
 		}
+		const base = new Date(dateStr + 'T12:00:00');
+		base.setDate(base.getDate() - 1);
+		base.setHours(WIN_START_HOUR, 0, 0, 0);
+		const ws = base.getTime();
+		return { winStart: ws, winEnd: ws + WIN_MS };
+	}
 
+	// Build renderable segments from a sleep log, clipped to [clipStart, winEnd] inside [winStart, winEnd].
+	function makeSegments(
+		log: SleepLog,
+		winStart: number,
+		winEnd: number,
+		clipStart = winStart
+	): Array<{ left: number; width: number; level: string }> {
+		function clip(s: number, e: number, level: string) {
+			const cs = Math.max(s, clipStart);
+			const ce = Math.min(e, winEnd);
+			if (ce <= cs) return null;
+			return { left: (cs - winStart) / WIN_MS * 100, width: (ce - cs) / WIN_MS * 100, level };
+		}
 		if (log.levels?.data?.length) {
 			return log.levels.data.flatMap((seg) => {
-				const segStart = new Date(seg.dateTime).getTime();
-				const result = toSegment(segStart, segStart + seg.seconds * 1000, seg.level);
-				return result ? [result] : [];
+				const s = new Date(seg.dateTime).getTime();
+				const r = clip(s, s + seg.seconds * 1000, seg.level);
+				return r ? [r] : [];
 			});
 		}
-		// Fallback: use startTime/endTime directly
-		const result = toSegment(
-			new Date(log.startTime).getTime(),
-			new Date(log.endTime).getTime(),
-			'asleep'
-		);
-		return result ? [result] : [];
+		const r = clip(new Date(log.startTime).getTime(), new Date(log.endTime).getTime(), 'asleep');
+		return r ? [r] : [];
+	}
+
+	function prevDateStr(dateStr: string): string {
+		const d = new Date(dateStr + 'T12:00:00');
+		d.setDate(d.getDate() - 1);
+		return d.toISOString().slice(0, 10);
 	}
 
 	function formatHHMM(minutes: number): string {
@@ -354,13 +367,19 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 							{@const entry = allSleepData.get(date)}
 							{@const log = entry?.mainSleep ?? null}
 							{@const isSelected = selectedDate === date}
-							{@const segments = log ? buildTimeline(log) : []}
+							{@const { winStart, winEnd } = getRowWin(date, log)}
+							{@const midnight = new Date(date + 'T00:00:00').getTime()}
+							{@const prevLog = allSleepData.get(prevDateStr(date))?.mainSleep ?? null}
+							{@const primarySegs = log ? makeSegments(log, winStart, winEnd) : []}
+							{@const spilloverSegs = (prevLog && new Date(prevLog.endTime).getTime() > midnight)
+								? makeSegments(prevLog, winStart, winEnd, midnight)
+								: []}
 
 							<button
-								onclick={() => { if (log) selectedDate = isSelected ? null : date; }}
+								onclick={() => { if (log || spilloverSegs.length) selectedDate = isSelected ? null : date; }}
 								class="flex w-full items-center gap-2 rounded-lg px-1 py-1 transition-colors
-									{isSelected ? 'bg-indigo-100 dark:bg-indigo-900/40 ring-1 ring-indigo-400 dark:ring-indigo-600' : log ? 'hover:bg-gray-100 dark:hover:bg-slate-800/60' : ''}
-									{log ? 'cursor-pointer' : 'cursor-default'}"
+									{isSelected ? 'bg-indigo-100 dark:bg-indigo-900/40 ring-1 ring-indigo-400 dark:ring-indigo-600' : (log || spilloverSegs.length) ? 'hover:bg-gray-100 dark:hover:bg-slate-800/60' : ''}
+									{(log || spilloverSegs.length) ? 'cursor-pointer' : 'cursor-default'}"
 							>
 								<span class="w-28 shrink-0 text-left text-sm tabular-nums {dateLabelClass(date, !!log)}">
 									{dateLabel(date)}
@@ -371,7 +390,13 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 										<div class="absolute inset-y-0 w-px bg-gray-300/80 dark:bg-slate-700/60" style="left:{pct}%"></div>
 									{/each}
 									<div class="absolute inset-y-0 w-px bg-gray-400 dark:bg-slate-500" style="left:{MIDNIGHT_PCT}%"></div>
-									{#each segments as seg}
+									{#each spilloverSegs as seg}
+										<div
+											class="absolute inset-y-0 opacity-50"
+											style="left:{seg.left}%; width:{seg.width}%; background:{levelColor(seg.level)};"
+										></div>
+									{/each}
+									{#each primarySegs as seg}
 										<div
 											class="absolute inset-y-0"
 											style="left:{seg.left}%; width:{seg.width}%; background:{levelColor(seg.level)};"
