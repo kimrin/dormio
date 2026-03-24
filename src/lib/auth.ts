@@ -1,11 +1,15 @@
+// @ts-ignore - base is deprecated in type definitions but still works correctly at runtime
+import { base } from '$app/paths';
+
 const STORAGE_TOKEN_KEY = 'dormio_token';
 const STORAGE_VERIFIER_KEY = 'dormio_pkce_verifier';
 const STORAGE_CLIENT_ID_KEY = 'dormio_client_id';
 
 function getRedirectUri(): string {
 	if (typeof window === 'undefined') return '';
-	const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-	return `${window.location.origin}${base}/callback/`;
+	// Strip trailing dot from origin (some DNS/browser configs add FQDN trailing dot)
+	const origin = window.location.origin.replace(/\.$/, '');
+	return `${origin}${base}/callback/`;
 }
 
 function generateRandomString(length: number): string {
