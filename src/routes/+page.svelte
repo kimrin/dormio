@@ -45,23 +45,21 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		'2027-11-03','2027-11-23',
 	]);
 
-	// Timeline window: 15:00 → 16:00 next day (25 hours)
-	// Extra margin covers long sleeps ending in mid-afternoon (e.g. 02:29–15:13)
-	const WIN_START_HOUR = 15;
-	const WIN_MS = 25 * 3600 * 1000;
-	const H = (h: number) => h / 25 * 100; // hours-from-start → %
+	// Timeline window: fixed 24h per row, D 21:00 → D+1 21:00
+	const WIN_MS = 24 * 3600 * 1000;
+	const H = (h: number) => h / 24 * 100; // hours-from-21:00 → %
 	const HOUR_MARKERS = [
-		{ label: '15', pct: H(0) },
-		{ label: '18', pct: H(3) },
-		{ label: '21', pct: H(6) },
-		{ label: '00', pct: H(9) },
-		{ label: '03', pct: H(12) },
-		{ label: '06', pct: H(15) },
-		{ label: '09', pct: H(18) },
-		{ label: '12', pct: H(21) },
-		{ label: '15', pct: H(24) },
+		{ label: '21', pct: H(0) },
+		{ label: '00', pct: H(3) },
+		{ label: '03', pct: H(6) },
+		{ label: '06', pct: H(9) },
+		{ label: '09', pct: H(12) },
+		{ label: '12', pct: H(15) },
+		{ label: '15', pct: H(18) },
+		{ label: '18', pct: H(21) },
+		{ label: '21', pct: H(24) },
 	];
-	const MIDNIGHT_PCT = H(9); // 00:00 is 9h from 15:00
+	const MIDNIGHT_PCT = H(3); // 00:00 is 3h from 21:00
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let period = $state<14 | 28>(14);
@@ -83,22 +81,24 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		return days;
 	});
 
-	// Pre-compute per-day timeline data for all grid days (including spillover).
+	// Pre-compute per-day timeline data.
+	// Each row D has a FIXED 24h window [D 21:00 → D+1 21:00].
+	// The sleep is found by searching for a log whose startTime falls within
+	// that window — checking both allSleepData[date] and allSleepData[nextDate],
+	// so it works regardless of whether Fitbit stores under start or wakeup date.
 	const gridData = $derived.by(() => gridDays.map(date => {
-		const log = allSleepData.get(date)?.mainSleep ?? null;
-		const midnight = new Date(date + 'T00:00:00').getTime();
-		const dayEnd = new Date(nextDateStr(date) + 'T00:00:00').getTime();
-		const prevLog = allSleepData.get(prevDateStr(date))?.mainSleep ?? null;
-		const nextLog = allSleepData.get(nextDateStr(date))?.mainSleep ?? null;
-		// backward: yesterday's sleep that extends past midnight into today
-		const backSpill = (prevLog && new Date(prevLog.endTime).getTime() > midnight) ? prevLog : null;
-		// forward: tomorrow's sleep that started tonight before midnight (stored under wakeup date)
-		const fwdSpill = (!log && nextLog && new Date(nextLog.startTime).getTime() < dayEnd) ? nextLog : null;
-		const { winStart, winEnd } = getRowWin(date, log, fwdSpill);
+		const winStart = new Date(date + 'T21:00:00').getTime();
+		const winEnd = winStart + WIN_MS;
+		// Find the sleep whose startTime falls in [winStart, winEnd]
+		const log = ([date, nextDateStr(date)] as const)
+			.map(d => allSleepData.get(d)?.mainSleep)
+			.find((sl): sl is import('$lib/types.js').SleepLog => {
+				if (!sl) return false;
+				const t = new Date(sl.startTime).getTime();
+				return t >= winStart && t < winEnd;
+			}) ?? null;
 		const primarySegs = log ? makeSegments(log, winStart, winEnd) : [];
-		const backSegs = backSpill ? makeSegments(backSpill, winStart, winEnd, midnight) : [];
-		const fwdSegs = fwdSpill ? makeSegments(fwdSpill, winStart, winEnd, winStart, dayEnd) : [];
-		return { date, log, primarySegs, backSegs, fwdSegs };
+		return { date, log, primarySegs };
 	}));
 
 	const selectedSleep = $derived(selectedDate ? allSleepData.get(selectedDate) ?? null : null);
@@ -133,36 +133,15 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		return colors[level] ?? '#94a3b8';
 	}
 
-	// Compute the display window for a row.
-	// Uses log (primary) or fallbackLog (forward spillover) to anchor the window.
-	// If neither, falls back to prev-day WIN_START_HOUR default.
-	function getRowWin(dateStr: string, log: SleepLog | null, fallbackLog: SleepLog | null = null): { winStart: number; winEnd: number } {
-		const ref = log ?? fallbackLog;
-		if (ref) {
-			const base = new Date(ref.startTime);
-			base.setHours(WIN_START_HOUR, 0, 0, 0);
-			if (new Date(ref.startTime).getHours() < WIN_START_HOUR) base.setDate(base.getDate() - 1);
-			const ws = base.getTime();
-			return { winStart: ws, winEnd: ws + WIN_MS };
-		}
-		const base = new Date(dateStr + 'T12:00:00');
-		base.setDate(base.getDate() - 1);
-		base.setHours(WIN_START_HOUR, 0, 0, 0);
-		const ws = base.getTime();
-		return { winStart: ws, winEnd: ws + WIN_MS };
-	}
-
-	// Build renderable segments from a sleep log, clipped to [clipStart, clipEnd] inside [winStart, winEnd].
+	// Build renderable segments from a sleep log, clipped to [winStart, winEnd].
 	function makeSegments(
 		log: SleepLog,
 		winStart: number,
-		winEnd: number,
-		clipStart = winStart,
-		clipEnd = winEnd
+		winEnd: number
 	): Array<{ left: number; width: number; level: string }> {
 		function clip(s: number, e: number, level: string) {
-			const cs = Math.max(s, clipStart);
-			const ce = Math.min(e, clipEnd);
+			const cs = Math.max(s, winStart);
+			const ce = Math.min(e, winEnd);
 			if (ce <= cs) return null;
 			return { left: (cs - winStart) / WIN_MS * 100, width: (ce - cs) / WIN_MS * 100, level };
 		}
@@ -390,15 +369,14 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 
 					<!-- Day rows -->
 					<div class="space-y-0.5">
-						{#each gridData as { date, log, primarySegs, backSegs, fwdSegs }}
+						{#each gridData as { date, log, primarySegs }}
 							{@const isSelected = selectedDate === date}
-							{@const hasVis = !!(log || backSegs.length || fwdSegs.length)}
 
 							<button
-								onclick={() => { if (hasVis) selectedDate = isSelected ? null : date; }}
+								onclick={() => { if (log) selectedDate = isSelected ? null : date; }}
 								class="flex w-full items-center gap-2 rounded-lg px-1 py-1 transition-colors
-									{isSelected ? 'bg-indigo-100 dark:bg-indigo-900/40 ring-1 ring-indigo-400 dark:ring-indigo-600' : hasVis ? 'hover:bg-gray-100 dark:hover:bg-slate-800/60' : ''}
-									{hasVis ? 'cursor-pointer' : 'cursor-default'}"
+									{isSelected ? 'bg-indigo-100 dark:bg-indigo-900/40 ring-1 ring-indigo-400 dark:ring-indigo-600' : log ? 'hover:bg-gray-100 dark:hover:bg-slate-800/60' : ''}
+									{log ? 'cursor-pointer' : 'cursor-default'}"
 							>
 								<span class="w-28 shrink-0 text-left text-sm tabular-nums {dateLabelClass(date, !!log)}">
 									{dateLabel(date)}
@@ -409,18 +387,6 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 										<div class="absolute inset-y-0 w-px bg-gray-300/80 dark:bg-slate-700/60" style="left:{pct}%"></div>
 									{/each}
 									<div class="absolute inset-y-0 w-px bg-gray-400 dark:bg-slate-500" style="left:{MIDNIGHT_PCT}%"></div>
-									{#each backSegs as seg}
-										<div
-											class="absolute inset-y-0 opacity-50"
-											style="left:{seg.left}%; width:{seg.width}%; background:{levelColor(seg.level)};"
-										></div>
-									{/each}
-									{#each fwdSegs as seg}
-										<div
-											class="absolute inset-y-0 opacity-50"
-											style="left:{seg.left}%; width:{seg.width}%; background:{levelColor(seg.level)};"
-										></div>
-									{/each}
 									{#each primarySegs as seg}
 										<div
 											class="absolute inset-y-0"
