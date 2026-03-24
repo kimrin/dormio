@@ -19,10 +19,12 @@ async function apiFetch<T>(path: string): Promise<T> {
 	return res.json();
 }
 
-export async function fetchRecentSleep(): Promise<Map<string, DaySleepData>> {
-	const tomorrow = new Date();
-	tomorrow.setDate(tomorrow.getDate() + 1);
-	const beforeDate = tomorrow.toISOString().slice(0, 10);
+export async function fetchRecentSleep(beforeDate?: string): Promise<Map<string, DaySleepData>> {
+	if (!beforeDate) {
+		const tomorrow = new Date();
+		tomorrow.setDate(tomorrow.getDate() + 1);
+		beforeDate = tomorrow.toISOString().slice(0, 10);
+	}
 
 	const url = `/1.2/user/-/sleep/list.json?beforeDate=${beforeDate}&sort=desc&offset=0&limit=100`;
 	const data = await apiFetch<{ sleep: SleepLog[] }>(url);
