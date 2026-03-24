@@ -35,6 +35,7 @@ jobs:
         run: npm run build
         env:
           BASE_PATH: '/${{ github.event.repository.name }}'
+          VITE_FITBIT_CLIENT_ID: ${{ secrets.FITBIT_CLIENT_ID }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

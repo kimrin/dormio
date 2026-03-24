@@ -3,7 +3,6 @@ import { base } from '$app/paths';
 
 const STORAGE_TOKEN_KEY = 'dormio_token';
 const STORAGE_VERIFIER_KEY = 'dormio_pkce_verifier';
-const STORAGE_CLIENT_ID_KEY = 'dormio_client_id';
 
 function getRedirectUri(): string {
 	if (typeof window === 'undefined') return '';
@@ -32,11 +31,7 @@ function base64URLEncode(buffer: ArrayBuffer): string {
 }
 
 export function getClientId(): string {
-	return localStorage.getItem(STORAGE_CLIENT_ID_KEY) ?? '';
-}
-
-export function setClientId(id: string): void {
-	localStorage.setItem(STORAGE_CLIENT_ID_KEY, id);
+	return import.meta.env.VITE_FITBIT_CLIENT_ID ?? '';
 }
 
 export async function startOAuthFlow(): Promise<void> {

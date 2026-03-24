@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { base } from '$app/paths';
-	import { authState, initAuth } from '$lib/stores.svelte.js';
-	import { startOAuthFlow, logout, setClientId, getClientId } from '$lib/auth.js';
+import { authState, initAuth } from '$lib/stores.svelte.js';
+	import { startOAuthFlow, logout, getClientId } from '$lib/auth.js';
 	import { fetchRecentSleep, totalMinutes } from '$lib/fitbit.js';
 	import type { DaySleepData, SleepLog } from '$lib/types.js';
 
@@ -66,8 +65,6 @@
 	let loading = $state(false);
 	let loadError = $state('');
 	let selectedDate = $state<string | null>(null);
-	let clientIdInput = $state('');
-	let showSetup = $state(false);
 	let darkMode = $state(true);
 
 	// ── Derived ────────────────────────────────────────────────────────────────
@@ -212,12 +209,6 @@
 		selectedDate = null;
 	}
 
-	function saveClientId() {
-		setClientId(clientIdInput.trim());
-		authState.clientId = clientIdInput.trim();
-		showSetup = false;
-	}
-
 	function handleLogout() {
 		logout();
 		authState.isAuthenticated = false;
@@ -231,7 +222,6 @@
 		darkMode = saved !== 'light';
 		applyTheme(darkMode);
 		initAuth();
-		clientIdInput = getClientId();
 		if (authState.isAuthenticated) loadData();
 	});
 </script>
@@ -257,47 +247,14 @@
 				</button>
 			{:else}
 				<button
-					onclick={() => { showSetup = !showSetup; }}
-					class="rounded-lg bg-gray-200 dark:bg-slate-800 px-3 py-1.5 text-sm text-gray-700 dark:text-slate-300 hover:bg-gray-300 dark:hover:bg-slate-700"
-				>
-					Setup
-				</button>
-				<button
 					onclick={() => startOAuthFlow()}
-					disabled={!authState.clientId}
-					class="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+					class="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
 				>
 					Connect Fitbit
 				</button>
 			{/if}
 		</div>
 	</header>
-
-	<!-- Setup panel -->
-	{#if showSetup}
-		<div class="mb-6 rounded-xl bg-gray-100 dark:bg-slate-800 p-5">
-			<h2 class="mb-3 font-semibold text-gray-800 dark:text-slate-200">Fitbit App Setup</h2>
-			<p class="mb-4 text-sm text-gray-600 dark:text-slate-400">
-				Register a personal app at <span class="text-indigo-500 dark:text-indigo-400">dev.fitbit.com</span> and enter your Client ID below.
-				Set the OAuth callback URL to: <code class="rounded bg-gray-200 dark:bg-slate-700 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400"
-					>{typeof window !== 'undefined' ? window.location.origin : ''}{base}/callback/</code>
-			</p>
-			<div class="flex gap-3">
-				<input
-					type="text"
-					bind:value={clientIdInput}
-					placeholder="Fitbit Client ID"
-					class="flex-1 rounded-lg bg-gray-200 dark:bg-slate-700 px-4 py-2 text-sm text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-				/>
-				<button
-					onclick={saveClientId}
-					class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-				>
-					Save
-				</button>
-			</div>
-		</div>
-	{/if}
 
 	{#if !authState.isAuthenticated}
 		<div class="flex min-h-[60vh] flex-col items-center justify-center text-center">
@@ -306,16 +263,12 @@
 			<p class="mb-8 max-w-sm text-gray-600 dark:text-slate-400">
 				Connect your Fitbit account to visualize your sleep phases.
 			</p>
-			{#if !authState.clientId}
-				<p class="text-sm text-amber-600 dark:text-amber-400">Set up your Fitbit Client ID first using the Setup button.</p>
-			{:else}
-				<button
-					onclick={() => startOAuthFlow()}
-					class="rounded-xl bg-indigo-600 px-6 py-3 font-medium text-white hover:bg-indigo-500"
-				>
-					Connect Fitbit
-				</button>
-			{/if}
+			<button
+				onclick={() => startOAuthFlow()}
+				class="rounded-xl bg-indigo-600 px-6 py-3 font-medium text-white hover:bg-indigo-500"
+			>
+				Connect Fitbit
+			</button>
 		</div>
 	{:else}
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
