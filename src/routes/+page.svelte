@@ -118,21 +118,33 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		base.setHours(WIN_START_HOUR, 0, 0, 0);
 		if (startDate.getHours() < WIN_START_HOUR) base.setDate(base.getDate() - 1);
 		const winStart = base.getTime();
+		const winEnd = winStart + WIN_MS;
+
+		function toSegment(segStart: number, segEnd: number, level: string) {
+			const s = Math.max(segStart, winStart);
+			const e = Math.min(segEnd, winEnd);
+			if (e <= s) return null;
+			return {
+				left: (s - winStart) / WIN_MS * 100,
+				width: (e - s) / WIN_MS * 100,
+				level
+			};
+		}
 
 		if (log.levels?.data?.length) {
 			return log.levels.data.flatMap((seg) => {
-				const rawLeft = (new Date(seg.dateTime).getTime() - winStart) / WIN_MS * 100;
-				const rawWidth = (seg.seconds * 1000) / WIN_MS * 100;
-				if (rawLeft >= 100 || rawLeft + rawWidth <= 0) return [];
-				const left = Math.max(0, rawLeft);
-				const width = Math.min(rawWidth, 100 - left);
-				return [{ left, width, level: seg.level }];
+				const segStart = new Date(seg.dateTime).getTime();
+				const result = toSegment(segStart, segStart + seg.seconds * 1000, seg.level);
+				return result ? [result] : [];
 			});
 		}
-		const rawLeft = (new Date(log.startTime).getTime() - winStart) / WIN_MS * 100;
-		const left = Math.max(0, rawLeft);
-		const width = Math.min(log.duration / WIN_MS * 100, 100 - left);
-		return [{ left, width, level: 'asleep' }];
+		// Fallback: use startTime/endTime directly
+		const result = toSegment(
+			new Date(log.startTime).getTime(),
+			new Date(log.endTime).getTime(),
+			'asleep'
+		);
+		return result ? [result] : [];
 	}
 
 	function formatHHMM(minutes: number): string {
