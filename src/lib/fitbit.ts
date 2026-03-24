@@ -1,7 +1,7 @@
 import { getValidToken } from './auth.js';
 import type { DaySleepData, SleepLog } from './types.js';
 
-const API_BASE = 'https://api.fitbit.com';
+const API_BASE = 'https://winter-mode-8b9b.kittykimura.workers.dev';
 
 async function apiFetch<T>(path: string): Promise<T> {
 	const token = await getValidToken();
