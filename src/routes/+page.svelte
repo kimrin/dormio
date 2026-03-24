@@ -45,21 +45,21 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		'2027-11-03','2027-11-23',
 	]);
 
-	// Timeline window: fixed 24h per row, D 21:00 → D+1 21:00
+	// Timeline window: fixed 24h per row, [(D-1) 18:00 → D 18:00]
 	const WIN_MS = 24 * 3600 * 1000;
-	const H = (h: number) => h / 24 * 100; // hours-from-21:00 → %
+	const H = (h: number) => h / 24 * 100; // hours-from-18:00 → %
 	const HOUR_MARKERS = [
-		{ label: '21', pct: H(0) },
-		{ label: '00', pct: H(3) },
-		{ label: '03', pct: H(6) },
-		{ label: '06', pct: H(9) },
-		{ label: '09', pct: H(12) },
-		{ label: '12', pct: H(15) },
-		{ label: '15', pct: H(18) },
-		{ label: '18', pct: H(21) },
-		{ label: '21', pct: H(24) },
+		{ label: '18', pct: H(0) },
+		{ label: '21', pct: H(3) },
+		{ label: '00', pct: H(6) },
+		{ label: '03', pct: H(9) },
+		{ label: '06', pct: H(12) },
+		{ label: '09', pct: H(15) },
+		{ label: '12', pct: H(18) },
+		{ label: '15', pct: H(21) },
+		{ label: '18', pct: H(24) },
 	];
-	const MIDNIGHT_PCT = H(3); // 00:00 is 3h from 21:00
+	const MIDNIGHT_PCT = H(6); // 00:00 is 6h from 18:00
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let period = $state<14 | 28>(14);
@@ -82,13 +82,11 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 	});
 
 	// Pre-compute per-day timeline data.
-	// Each row D has a FIXED 24h window [D 21:00 → D+1 21:00].
-	// Row D shows the sleep for the night leading up to D:
-	// window = [(D-1) 21:00 → D 21:00]  (24h fixed).
+	// Each row D has a FIXED 24h window [(D-1) 18:00 → D 18:00].
 	// Search allSleepData[D] (wakeup-date convention) and
 	// allSleepData[D-1] (start-date convention) for startTime in that window.
 	const gridData = $derived.by(() => gridDays.map(date => {
-		const winStart = new Date(prevDateStr(date) + 'T21:00:00').getTime();
+		const winStart = new Date(prevDateStr(date) + 'T18:00:00').getTime();
 		const winEnd = winStart + WIN_MS;
 		// Find the sleep whose startTime falls in [winStart, winEnd]
 		const log = ([date, prevDateStr(date)] as const)
