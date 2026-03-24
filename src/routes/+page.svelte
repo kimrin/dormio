@@ -45,10 +45,11 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		'2027-11-03','2027-11-23',
 	]);
 
-	// Timeline window: 15:00 → 14:00 next day (23 hours)
+	// Timeline window: 15:00 → 16:00 next day (25 hours)
+	// Extra margin covers long sleeps ending in mid-afternoon (e.g. 02:29–15:13)
 	const WIN_START_HOUR = 15;
-	const WIN_MS = 23 * 3600 * 1000;
-	const H = (h: number) => h / 23 * 100; // hours-from-start → %
+	const WIN_MS = 25 * 3600 * 1000;
+	const H = (h: number) => h / 25 * 100; // hours-from-start → %
 	const HOUR_MARKERS = [
 		{ label: '15', pct: H(0) },
 		{ label: '18', pct: H(3) },
@@ -58,6 +59,7 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		{ label: '06', pct: H(15) },
 		{ label: '09', pct: H(18) },
 		{ label: '12', pct: H(21) },
+		{ label: '15', pct: H(24) },
 	];
 	const MIDNIGHT_PCT = H(9); // 00:00 is 9h from 15:00
 
