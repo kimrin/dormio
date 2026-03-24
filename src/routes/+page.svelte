@@ -83,14 +83,15 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 
 	// Pre-compute per-day timeline data.
 	// Each row D has a FIXED 24h window [D 21:00 → D+1 21:00].
-	// The sleep is found by searching for a log whose startTime falls within
-	// that window — checking both allSleepData[date] and allSleepData[nextDate],
-	// so it works regardless of whether Fitbit stores under start or wakeup date.
+	// Row D shows the sleep for the night leading up to D:
+	// window = [(D-1) 21:00 → D 21:00]  (24h fixed).
+	// Search allSleepData[D] (wakeup-date convention) and
+	// allSleepData[D-1] (start-date convention) for startTime in that window.
 	const gridData = $derived.by(() => gridDays.map(date => {
-		const winStart = new Date(date + 'T21:00:00').getTime();
+		const winStart = new Date(prevDateStr(date) + 'T21:00:00').getTime();
 		const winEnd = winStart + WIN_MS;
 		// Find the sleep whose startTime falls in [winStart, winEnd]
-		const log = ([date, nextDateStr(date)] as const)
+		const log = ([date, prevDateStr(date)] as const)
 			.map(d => allSleepData.get(d)?.mainSleep)
 			.find((sl): sl is import('$lib/types.js').SleepLog => {
 				if (!sl) return false;
