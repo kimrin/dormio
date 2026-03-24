@@ -45,21 +45,21 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		'2027-11-03','2027-11-23',
 	]);
 
-	// Timeline window: fixed 24h per row, [(D-1) 18:00 → D 18:00]
+	// Timeline window: fixed 24h per row, [(D-1) 21:00 → D 21:00]
 	const WIN_MS = 24 * 3600 * 1000;
-	const H = (h: number) => h / 24 * 100; // hours-from-18:00 → %
+	const H = (h: number) => h / 24 * 100; // hours-from-21:00 → %
 	const HOUR_MARKERS = [
-		{ label: '18', pct: H(0) },
-		{ label: '21', pct: H(3) },
-		{ label: '00', pct: H(6) },
-		{ label: '03', pct: H(9) },
-		{ label: '06', pct: H(12) },
-		{ label: '09', pct: H(15) },
-		{ label: '12', pct: H(18) },
-		{ label: '15', pct: H(21) },
-		{ label: '18', pct: H(24) },
+		{ label: '21', pct: H(0) },
+		{ label: '00', pct: H(3) },
+		{ label: '03', pct: H(6) },
+		{ label: '06', pct: H(9) },
+		{ label: '09', pct: H(12) },
+		{ label: '12', pct: H(15) },
+		{ label: '15', pct: H(18) },
+		{ label: '18', pct: H(21) },
+		{ label: '21', pct: H(24) },
 	];
-	const MIDNIGHT_PCT = H(6); // 00:00 is 6h from 18:00
+	const MIDNIGHT_PCT = H(3); // 00:00 is 3h from 21:00
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let period = $state<14 | 28>(14);
@@ -82,22 +82,36 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 	});
 
 	// Pre-compute per-day timeline data.
-	// Each row D has a FIXED 24h window [(D-1) 18:00 → D 18:00].
-	// Search allSleepData[D] (wakeup-date convention) and
-	// allSleepData[D-1] (start-date convention) for startTime in that window.
+	// Each row D has a FIXED 24h window [(D-1) 21:00 → D 21:00].
+	// primaryLog: sleep whose startTime falls in [winStart, winEnd].
+	// backLog: sleep that started before winStart but ends after it (spills from previous row).
 	const gridData = $derived.by(() => gridDays.map(date => {
-		const winStart = new Date(prevDateStr(date) + 'T18:00:00').getTime();
+		const prev = prevDateStr(date);
+		const winStart = new Date(prev + 'T21:00:00').getTime();
 		const winEnd = winStart + WIN_MS;
-		// Find the sleep whose startTime falls in [winStart, winEnd]
-		const log = ([date, prevDateStr(date)] as const)
+
+		const primaryLog = ([date, prev] as const)
 			.map(d => allSleepData.get(d)?.mainSleep)
 			.find((sl): sl is import('$lib/types.js').SleepLog => {
 				if (!sl) return false;
 				const t = new Date(sl.startTime).getTime();
 				return t >= winStart && t < winEnd;
 			}) ?? null;
-		const primarySegs = log ? makeSegments(log, winStart, winEnd) : [];
-		return { date, log, primarySegs };
+
+		// Back-spillover: yesterday's sleep that crossed the 21:00 boundary into today
+		const backLog = ([prev, prevDateStr(prev)] as const)
+			.map(d => allSleepData.get(d)?.mainSleep)
+			.find((sl): sl is import('$lib/types.js').SleepLog => {
+				if (!sl) return false;
+				const startT = new Date(sl.startTime).getTime();
+				const endT = new Date(sl.endTime).getTime();
+				return startT < winStart && endT > winStart;
+			}) ?? null;
+
+		const log = primaryLog ?? backLog;
+		const primarySegs = primaryLog ? makeSegments(primaryLog, winStart, winEnd) : [];
+		const backSegs = backLog ? makeSegments(backLog, winStart, winEnd) : [];
+		return { date, log, primarySegs, backSegs };
 	}));
 
 	const selectedSleep = $derived(selectedDate ? allSleepData.get(selectedDate) ?? null : null);
@@ -368,7 +382,7 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 
 					<!-- Day rows -->
 					<div class="space-y-0.5">
-						{#each gridData as { date, log, primarySegs }}
+						{#each gridData as { date, log, primarySegs, backSegs }}
 							{@const isSelected = selectedDate === date}
 
 							<button
@@ -386,6 +400,12 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 										<div class="absolute inset-y-0 w-px bg-gray-300/80 dark:bg-slate-700/60" style="left:{pct}%"></div>
 									{/each}
 									<div class="absolute inset-y-0 w-px bg-gray-400 dark:bg-slate-500" style="left:{MIDNIGHT_PCT}%"></div>
+									{#each backSegs as seg}
+										<div
+											class="absolute inset-y-0 opacity-60"
+											style="left:{seg.left}%; width:{seg.width}%; background:{levelColor(seg.level)};"
+										></div>
+									{/each}
 									{#each primarySegs as seg}
 										<div
 											class="absolute inset-y-0"
