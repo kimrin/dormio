@@ -44,7 +44,7 @@ export async function startOAuthFlow(): Promise<void> {
 
 	const verifier = generateRandomString(64);
 	const challenge = base64URLEncode(await sha256(verifier));
-	sessionStorage.setItem(STORAGE_VERIFIER_KEY, verifier);
+	localStorage.setItem(STORAGE_VERIFIER_KEY, verifier);
 
 	const params = new URLSearchParams({
 		client_id: clientId,
@@ -60,7 +60,7 @@ export async function startOAuthFlow(): Promise<void> {
 
 export async function handleCallback(code: string): Promise<void> {
 	const clientId = getClientId();
-	const verifier = sessionStorage.getItem(STORAGE_VERIFIER_KEY);
+	const verifier = localStorage.getItem(STORAGE_VERIFIER_KEY);
 	if (!clientId || !verifier) throw new Error('Missing OAuth state');
 
 	const res = await fetch('https://api.fitbit.com/oauth2/token', {
@@ -90,7 +90,7 @@ export async function handleCallback(code: string): Promise<void> {
 	};
 
 	localStorage.setItem(STORAGE_TOKEN_KEY, JSON.stringify(token));
-	sessionStorage.removeItem(STORAGE_VERIFIER_KEY);
+	localStorage.removeItem(STORAGE_VERIFIER_KEY);
 }
 
 export function getToken(): import('./types.js').TokenData | null {
