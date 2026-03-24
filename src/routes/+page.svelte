@@ -45,18 +45,21 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 		'2027-11-03','2027-11-23',
 	]);
 
-	// Timeline window: 18:00 → 14:00 next day (20 hours)
-	const WIN_START_HOUR = 18;
-	const WIN_MS = 20 * 3600 * 1000;
+	// Timeline window: 15:00 → 14:00 next day (23 hours)
+	const WIN_START_HOUR = 15;
+	const WIN_MS = 23 * 3600 * 1000;
+	const H = (h: number) => h / 23 * 100; // hours-from-start → %
 	const HOUR_MARKERS = [
-		{ label: '18', pct: 0 },
-		{ label: '21', pct: 15 },
-		{ label: '00', pct: 30 },
-		{ label: '03', pct: 45 },
-		{ label: '06', pct: 60 },
-		{ label: '09', pct: 75 },
-		{ label: '12', pct: 90 },
+		{ label: '15', pct: H(0) },
+		{ label: '18', pct: H(3) },
+		{ label: '21', pct: H(6) },
+		{ label: '00', pct: H(9) },
+		{ label: '03', pct: H(12) },
+		{ label: '06', pct: H(15) },
+		{ label: '09', pct: H(18) },
+		{ label: '12', pct: H(21) },
 	];
+	const MIDNIGHT_PCT = H(9); // 00:00 is 9h from 15:00
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let period = $state<14 | 28>(14);
@@ -353,7 +356,7 @@ import { authState, initAuth } from '$lib/stores.svelte.js';
 									{#each HOUR_MARKERS as { pct }}
 										<div class="absolute inset-y-0 w-px bg-gray-300/80 dark:bg-slate-700/60" style="left:{pct}%"></div>
 									{/each}
-									<div class="absolute inset-y-0 w-px bg-gray-400 dark:bg-slate-500" style="left:30%"></div>
+									<div class="absolute inset-y-0 w-px bg-gray-400 dark:bg-slate-500" style="left:{MIDNIGHT_PCT}%"></div>
 									{#each segments as seg}
 										<div
 											class="absolute inset-y-0"
