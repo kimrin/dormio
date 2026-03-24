@@ -1,14 +1,11 @@
-import { base } from '$app/paths';
-
 const STORAGE_TOKEN_KEY = 'dormio_token';
 const STORAGE_VERIFIER_KEY = 'dormio_pkce_verifier';
 const STORAGE_CLIENT_ID_KEY = 'dormio_client_id';
 
 function getRedirectUri(): string {
 	if (typeof window === 'undefined') return '';
-	const origin = window.location.origin;
-	const basePath = base || '';
-	return `${origin}${basePath}/callback`;
+	const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+	return `${window.location.origin}${base}/callback/`;
 }
 
 function generateRandomString(length: number): string {
