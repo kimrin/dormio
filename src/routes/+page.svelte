@@ -4,17 +4,30 @@
 	import { authState, initAuth } from '$lib/stores.svelte.js';
 	import { startOAuthFlow, logout, setClientId, getClientId } from '$lib/auth.js';
 	import { fetchRecentSleep, totalMinutes } from '$lib/fitbit.js';
-	import type { DaySleepData } from '$lib/types.js';
+	import type { DaySleepData, SleepLog } from '$lib/types.js';
+
+	const todayStr = new Date().toISOString().slice(0, 10);
+	const JP_DOW = ['日', '月', '火', '水', '木', '金', '土'];
+
+	// Timeline window: 18:00 → 14:00 next day (20 hours)
+	const WIN_START_HOUR = 18;
+	const WIN_MS = 20 * 3600 * 1000;
+	const HOUR_MARKERS = [
+		{ label: '18', pct: 0 },
+		{ label: '21', pct: 15 },
+		{ label: '00', pct: 30 },
+		{ label: '03', pct: 45 },
+		{ label: '06', pct: 60 },
+		{ label: '09', pct: 75 },
+		{ label: '12', pct: 90 },
+	];
 
 	// ── State ──────────────────────────────────────────────────────────────────
-	const todayStr = new Date().toISOString().slice(0, 10);
-
 	let period = $state<14 | 28>(14);
 	let sleepData = $state<Map<string, DaySleepData>>(new Map());
 	let loading = $state(false);
 	let loadError = $state('');
 	let selectedDate = $state<string | null>(null);
-
 	let clientIdInput = $state('');
 	let showSetup = $state(false);
 
@@ -31,7 +44,66 @@
 
 	const selectedSleep = $derived(selectedDate ? sleepData.get(selectedDate) ?? null : null);
 
-	// ── Functions ──────────────────────────────────────────────────────────────
+	// ── Helpers ────────────────────────────────────────────────────────────────
+	function dateLabel(dateStr: string): string {
+		const d = new Date(dateStr + 'T12:00:00');
+		const mm = String(d.getMonth() + 1).padStart(2, '0');
+		const dd = String(d.getDate()).padStart(2, '0');
+		return `${mm}-${dd}（${JP_DOW[d.getDay()]}）`;
+	}
+
+	function levelColor(level: string): string {
+		const colors: Record<string, string> = {
+			deep: '#1e3a8a',
+			light: '#3b82f6',
+			rem: '#9333ea',
+			wake: '#ef4444',
+			asleep: '#3b82f6',
+			restless: '#f97316',
+			awake: '#ef4444',
+		};
+		return colors[level] ?? '#94a3b8';
+	}
+
+	function buildTimeline(log: SleepLog, dateStr: string) {
+		const winStart = new Date(
+			`${dateStr}T${String(WIN_START_HOUR).padStart(2, '0')}:00:00`
+		).getTime();
+
+		if (log.levels?.data?.length) {
+			return log.levels.data.flatMap((seg) => {
+				const rawLeft = (new Date(seg.dateTime).getTime() - winStart) / WIN_MS * 100;
+				const rawWidth = (seg.seconds * 1000) / WIN_MS * 100;
+				if (rawLeft >= 100 || rawLeft + rawWidth <= 0) return [];
+				const left = Math.max(0, rawLeft);
+				const width = Math.min(rawWidth, 100 - left);
+				return [{ left, width, level: seg.level }];
+			});
+		}
+		// Fallback: one block for the whole sleep
+		const rawLeft = (new Date(log.startTime).getTime() - winStart) / WIN_MS * 100;
+		const left = Math.max(0, rawLeft);
+		const width = Math.min(log.duration / WIN_MS * 100, 100 - left);
+		return [{ left, width, level: 'asleep' }];
+	}
+
+	function formatHHMM(minutes: number): string {
+		const h = Math.floor(minutes / 60);
+		const m = minutes % 60;
+		return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+	}
+
+	function formatDuration(minutes: number): string {
+		const h = Math.floor(minutes / 60);
+		const m = minutes % 60;
+		return h > 0 ? `${h}h ${m}m` : `${m}m`;
+	}
+
+	function phaseLabel(phase: string): string {
+		return ({ deep: 'Deep', light: 'Light', rem: 'REM', wake: 'Awake' } as Record<string, string>)[phase] ?? phase;
+	}
+
+	// ── Data loading ───────────────────────────────────────────────────────────
 	async function loadData() {
 		if (!authState.isAuthenticated) return;
 		loading = true;
@@ -60,34 +132,6 @@
 		authState.isAuthenticated = false;
 		sleepData = new Map();
 		selectedDate = null;
-	}
-
-	function phaseColor(phase: string): string {
-		return ({ deep: '#1d4ed8', light: '#60a5fa', rem: '#a855f7', wake: '#f59e0b' } as Record<string, string>)[phase] ?? '#94a3b8';
-	}
-
-	function phaseLabel(phase: string): string {
-		return ({ deep: 'Deep', light: 'Light', rem: 'REM', wake: 'Awake' } as Record<string, string>)[phase] ?? phase;
-	}
-
-	function formatDuration(minutes: number): string {
-		const h = Math.floor(minutes / 60);
-		const m = minutes % 60;
-		return h > 0 ? `${h}h ${m}m` : `${m}m`;
-	}
-
-	function sleepBarSegments(date: string) {
-		const entry = sleepData.get(date);
-		if (!entry?.mainSleep) return [];
-		const m = totalMinutes(entry.mainSleep);
-		const total = m.deep + m.light + m.rem + m.wake;
-		if (total === 0) return [];
-		return [
-			{ phase: 'deep', pct: (m.deep / total) * 100 },
-			{ phase: 'rem', pct: (m.rem / total) * 100 },
-			{ phase: 'light', pct: (m.light / total) * 100 },
-			{ phase: 'wake', pct: (m.wake / total) * 100 }
-		].filter((s) => s.pct > 0);
 	}
 
 	// ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -134,7 +178,8 @@
 			<h2 class="mb-3 font-semibold text-slate-200">Fitbit App Setup</h2>
 			<p class="mb-4 text-sm text-slate-400">
 				Register a personal app at <span class="text-indigo-400">dev.fitbit.com</span> and enter your Client ID below.
-				Set the OAuth callback URL to: <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-emerald-400">{typeof window !== 'undefined' ? window.location.origin : ''}{base}/callback/</code>
+				Set the OAuth callback URL to: <code class="rounded bg-slate-700 px-1.5 py-0.5 text-xs text-emerald-400"
+					>{typeof window !== 'undefined' ? window.location.origin : ''}{base}/callback/</code>
 			</p>
 			<div class="flex gap-3">
 				<input
@@ -154,7 +199,6 @@
 	{/if}
 
 	{#if !authState.isAuthenticated}
-		<!-- Not connected state -->
 		<div class="flex min-h-[60vh] flex-col items-center justify-center text-center">
 			<div class="mb-6 text-6xl">🌙</div>
 			<h2 class="mb-2 text-xl font-semibold text-slate-200">Sleep Calendar</h2>
@@ -174,7 +218,7 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-			<!-- Grid panel -->
+			<!-- Timeline panel -->
 			<div class="lg:col-span-2">
 				<!-- Period selector -->
 				<div class="mb-4 flex items-center gap-2">
@@ -194,7 +238,6 @@
 					</button>
 				</div>
 
-				<!-- Loading / Error -->
 				{#if loading}
 					<div class="flex h-64 items-center justify-center">
 						<div class="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent"></div>
@@ -205,43 +248,79 @@
 						<button onclick={loadData} class="ml-2 underline">Retry</button>
 					</div>
 				{:else}
-					<!-- Sleep grid -->
-					<div class="grid grid-cols-7 gap-1">
+					<!-- Hour axis header -->
+					<div class="mb-1 flex items-end gap-2">
+						<div class="w-28 shrink-0"></div>
+						<div class="relative h-4 flex-1">
+							{#each HOUR_MARKERS as { label, pct }}
+								<span
+									class="absolute -translate-x-1/2 text-[10px] text-slate-500"
+									style="left:{pct}%">{label}</span
+								>
+							{/each}
+						</div>
+						<div class="w-14 shrink-0"></div>
+					</div>
+
+					<!-- Day rows -->
+					<div class="space-y-0.5">
 						{#each gridDays as date}
-							{@const hasSleep = sleepData.has(date)}
+							{@const entry = sleepData.get(date)}
+							{@const log = entry?.mainSleep ?? null}
 							{@const isSelected = selectedDate === date}
 							{@const isToday = date === todayStr}
-							{@const segments = sleepBarSegments(date)}
-							{@const dayNum = parseInt(date.slice(8))}
-							{@const dow = new Date(date + 'T12:00:00').toLocaleDateString('default', { weekday: 'short' })}
+							{@const segments = log ? buildTimeline(log, date) : []}
+
 							<button
-								onclick={() => { if (hasSleep) selectedDate = isSelected ? null : date; }}
-								class="flex min-h-[80px] flex-col rounded-xl p-2 text-left transition-colors
-									{isSelected ? 'bg-indigo-900/60 ring-2 ring-indigo-500' : 'bg-slate-800/60 hover:bg-slate-800'}
-									{hasSleep ? 'cursor-pointer' : 'cursor-default'}"
+								onclick={() => { if (log) selectedDate = isSelected ? null : date; }}
+								class="flex w-full items-center gap-2 rounded-lg px-1 py-1 transition-colors
+									{isSelected ? 'bg-indigo-900/40 ring-1 ring-indigo-600' : log ? 'hover:bg-slate-800/60' : ''}
+									{log ? 'cursor-pointer' : 'cursor-default'}"
 							>
-								<span class="text-[10px] text-slate-500">{dow}</span>
-								<span class="text-xs font-medium {isToday ? 'text-indigo-400' : 'text-slate-300'}">{dayNum}</span>
-								{#if segments.length > 0}
-									<div class="mt-auto flex h-3 w-full overflow-hidden rounded-full">
-										{#each segments as seg}
-											<div style="width:{seg.pct}%; background:{phaseColor(seg.phase)};"></div>
-										{/each}
-									</div>
-									{@const log = sleepData.get(date)?.mainSleep}
-									{#if log}
-										<span class="mt-1 text-[10px] text-slate-500">{formatDuration(log.minutesAsleep)}</span>
-									{/if}
-								{/if}
+								<!-- Date label -->
+								<span
+									class="w-28 shrink-0 text-left text-sm tabular-nums
+										{isToday ? 'text-indigo-400 font-medium' : log ? 'text-slate-300' : 'text-slate-600'}"
+								>
+									{dateLabel(date)}
+								</span>
+
+								<!-- Timeline bar -->
+								<div class="relative h-7 flex-1 overflow-hidden rounded bg-slate-800/60">
+									<!-- Hour gridlines -->
+									{#each HOUR_MARKERS as { pct }}
+										<div
+											class="absolute inset-y-0 w-px bg-slate-700/60"
+											style="left:{pct}%"
+										></div>
+									{/each}
+									<!-- Midnight emphasis -->
+									<div class="absolute inset-y-0 w-px bg-slate-500" style="left:30%"></div>
+									<!-- Sleep segments -->
+									{#each segments as seg}
+										<div
+											class="absolute inset-y-0"
+											style="left:{seg.left}%; width:{seg.width}%; background:{levelColor(seg.level)};"
+										></div>
+									{/each}
+								</div>
+
+								<!-- Duration -->
+								<span
+									class="w-14 shrink-0 text-right text-sm tabular-nums
+										{log ? 'text-slate-300' : 'text-slate-700'}"
+								>
+									{log ? formatHHMM(log.minutesAsleep) : '—'}
+								</span>
 							</button>
 						{/each}
 					</div>
 
 					<!-- Legend -->
 					<div class="mt-4 flex flex-wrap gap-4">
-						{#each [['deep','Deep'], ['rem','REM'], ['light','Light'], ['wake','Awake']] as [phase, label]}
+						{#each [['deep', 'Deep'], ['rem', 'REM'], ['light', 'Light'], ['wake', 'Awake']] as [phase, label]}
 							<div class="flex items-center gap-1.5">
-								<div class="h-3 w-3 rounded-full" style="background:{phaseColor(phase)};"></div>
+								<div class="h-3 w-3 rounded-sm" style="background:{levelColor(phase)};"></div>
 								<span class="text-xs text-slate-500">{label}</span>
 							</div>
 						{/each}
@@ -257,7 +336,11 @@
 					{@const total = m.deep + m.light + m.rem + m.wake}
 					<div class="rounded-xl bg-slate-800 p-5">
 						<h3 class="mb-1 font-semibold text-slate-200">
-							{new Date(selectedDate + 'T12:00:00').toLocaleDateString('default', { weekday: 'long', month: 'short', day: 'numeric' })}
+							{new Date(selectedDate + 'T12:00:00').toLocaleDateString('default', {
+								weekday: 'long',
+								month: 'short',
+								day: 'numeric'
+							})}
 						</h3>
 						<p class="mb-4 text-sm text-slate-400">
 							{new Date(log.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -265,7 +348,6 @@
 							{new Date(log.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
 						</p>
 
-						<!-- Phase bars -->
 						<div class="mb-5 space-y-3">
 							{#each [['deep', m.deep], ['rem', m.rem], ['light', m.light], ['wake', m.wake]] as [phase, mins]}
 								{#if total > 0}
@@ -277,7 +359,7 @@
 										<div class="h-2.5 w-full overflow-hidden rounded-full bg-slate-700">
 											<div
 												class="h-full rounded-full transition-all"
-												style="width:{((mins as number)/total)*100}%; background:{phaseColor(phase as string)};"
+												style="width:{((mins as number) / total) * 100}%; background:{levelColor(phase as string)};"
 											></div>
 										</div>
 									</div>
@@ -285,7 +367,6 @@
 							{/each}
 						</div>
 
-						<!-- Stats grid -->
 						<div class="grid grid-cols-2 gap-3">
 							<div class="rounded-lg bg-slate-700/50 p-3">
 								<div class="text-xs text-slate-500">Total Sleep</div>

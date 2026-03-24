@@ -1,6 +1,6 @@
 export interface SleepLevel {
 	dateTime: string;
-	level: 'deep' | 'light' | 'rem' | 'wake';
+	level: 'deep' | 'light' | 'rem' | 'wake' | 'asleep' | 'restless' | 'awake';
 	seconds: number;
 }
 
